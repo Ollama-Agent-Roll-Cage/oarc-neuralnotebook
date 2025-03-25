@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="notebookLogo2.png" alt="OARC LOGO" width="850"/>
+  <img src="notebookLogo2.png" alt="OARC LOGO" width="150"/>
 </p>
 
 # NeuralNotebook
