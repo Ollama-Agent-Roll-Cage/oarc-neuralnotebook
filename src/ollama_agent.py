@@ -239,3 +239,49 @@ class OllamaWorker(QObject):
         ```
         </code>
         """
+    
+    async def generate_complete_notebook(self, prompt):
+        """Generate a complete notebook in phases"""
+        phases = [
+            ("planning", "Plan the notebook structure and outline key sections"),
+            ("setup", "Generate setup and import code cells"),
+            ("implementation", "Implement core functionality"),
+            ("analysis", "Add analysis and visualization cells"),
+            ("documentation", "Add comprehensive documentation and explanations")
+        ]
+        
+        structure = None
+        current_context = ""
+        
+        for phase, phase_prompt in phases:
+            phase_message = f"""
+            Phase: {phase}
+            Main prompt: {prompt}
+            Current context: {current_context}
+            
+            Generate the next set of cells for this phase.
+            Include both markdown documentation and code cells.
+            
+            Use these exact tags:
+            <md>Markdown content</md>
+            <code>```python
+            Code content
+            ```</code>
+            """
+            
+            result = ""
+            async for part in await AsyncClient().chat(
+                model=self.model,
+                messages=[{"role": "user", "content": phase_message}],
+                stream=True
+            ):
+                content = part['message']['content']
+                result += content
+                # Process complete cells as they arrive
+                if '</md>' in content or '</code>' in content:
+                    self.result_ready.emit(result)
+                    current_context += f"\n{result}"
+                    result = ""
+                    
+            # Small delay between phases
+            await asyncio.sleep(1)

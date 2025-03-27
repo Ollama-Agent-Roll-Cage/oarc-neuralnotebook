@@ -553,52 +553,69 @@ class NotebookApp(QMainWindow):
         if selected_model in ["No models found", "Error loading models"]:
             QMessageBox.warning(self, "Warning", "Please select a valid Ollama model")
             return
-            
-        # Update the current model from the combo box
-        if selected_model != self.ollama_model:
-            self.ollama_model = selected_model
-            self.ollama_worker = OllamaWorker(self.ollama_model)
-            self.ollama_worker.result_ready.connect(self.handle_ollama_result)
-            self.ollama_worker.error_occurred.connect(self.handle_ollama_error)
         
-        # Handle derive mode differently
+        # Handle derive mode
         if self.generation_mode == "derive":
-            self.generate_in_derive_mode(cell_type)
-            return
+            prompt, ok = QInputDialog.getText(
+                self,
+                "Generate Complete Notebook",
+                "What should this notebook do?",
+                text="Create a notebook that "
+            )
+            
+            if ok and prompt:
+                self.derive_mode_prompt = prompt
+                self.derive_mode_in_progress = True
+                
+                # Clear notebook and add initial cell
+                self.notebook = NotebookDocument()
+                self.notebook.add_cell(NotebookCell(
+                    "markdown",
+                    f"# {prompt}\n\nGenerating comprehensive notebook..."
+                ))
+                self.update_editor()
+                
+                # Start phased generation
+                thread = threading.Thread(
+                    target=self.ollama_worker.start_generation,
+                    args=(prompt, None, None, True)
+                )
+                thread.daemon = True
+                thread.start()
+                return
         
         # Single cell mode
         prompt, ok = QInputDialog.getText(
-            self, 
-            f"Generate {cell_type.capitalize()}",
-            "Enter your prompt:",
-            text=f"Generate {'code to' if cell_type == 'code' else 'documentation for'} "
+            self,
+            "Generate Cell Content",
+            "What would you like to generate?",
+            text="Generate "
         )
         
         if ok and prompt:
-            # Prepare notebook context if enabled
-            notebook_context = None
-            if self.use_context_checkbox.isChecked():
-                notebook_context = self.notebook.to_plain_text()
+            context = self.notebook.to_plain_text() if self.use_context_checkbox.isChecked() else None
             
-            # Create a placeholder cell for the generated content
-            placeholder_text = f"Generating {cell_type} content with {self.ollama_model}..."
+            # Always generate both markdown and code for single cells
+            self.generating_cell_index = self.current_editing_cell or len(self.notebook.cells)
             
-            # Add the placeholder cell at the current position or at the end
-            if self.current_editing_cell is not None:
-                self.notebook.add_cell(NotebookCell(cell_type, placeholder_text), self.current_editing_cell + 1)
-                self.current_editing_cell += 1
-                self.generating_cell_index = self.current_editing_cell
-            else:
-                self.notebook.add_cell(NotebookCell(cell_type, placeholder_text))
-                self.generating_cell_index = len(self.notebook.cells) - 1
-                
+            # Add markdown cell first
+            self.notebook.add_cell(
+                NotebookCell("markdown", "Generating documentation..."),
+                self.generating_cell_index
+            )
+            
+            # Add code cell
+            self.notebook.add_cell(
+                NotebookCell("code", "Generating code..."),
+                self.generating_cell_index + 1
+            )
+            
             self.update_editor()
-            self.status_label.setText(f"Generating {cell_type} with {self.ollama_model}...")
             
-            # Run Ollama in a separate thread to keep UI responsive
+            # Generate both cells
             thread = threading.Thread(
                 target=self.ollama_worker.start_generation,
-                args=(prompt, notebook_context, cell_type, False)  # False for not derive mode
+                args=(prompt, context, "both", False)
             )
             thread.daemon = True
             thread.start()
@@ -790,6 +807,42 @@ class NotebookApp(QMainWindow):
                     line-height: 1.5;
                 }}
                 [contenteditable] {{ outline: none; }}
+                
+                /* Improved Markdown styling */
+                .cell-markdown .cell-content {{
+                    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+                    line-height: 1.6;
+                }}
+                
+                .cell-markdown h1 {{ font-size: 2em; margin: 0.67em 0; border-bottom: 1px solid {self.colors['cell_border']}; }}
+                .cell-markdown h2 {{ font-size: 1.5em; margin: 0.75em 0; border-bottom: 1px solid {self.colors['cell_border']}; }}
+                .cell-markdown h3 {{ font-size: 1.17em; margin: 0.83em 0; }}
+                
+                .cell-markdown code {{
+                    background: {self.colors['cell_code']};
+                    padding: 0.2em 0.4em;
+                    border-radius: 3px;
+                    font-family: monospace;
+                }}
+                
+                .cell-markdown pre {{
+                    background: {self.colors['cell_code']};
+                    padding: 1em;
+                    border-radius: 6px;
+                    overflow-x: auto;
+                }}
+                
+                .cell-markdown ul, .cell-markdown ol {{
+                    padding-left: 2em;
+                    margin: 1em 0;
+                }}
+                
+                .cell-markdown blockquote {{
+                    border-left: 4px solid {self.colors['accent']};
+                    margin: 0;
+                    padding-left: 1em;
+                    color: {self.colors['text']};
+                }}
             </style>
         </head>
         <body>
